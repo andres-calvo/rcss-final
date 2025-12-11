@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoboCup Control</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app">
+        <header class="header">
+            <h1>⚽ RoboCup <span class="accent">Control</span></h1>
+            <div class="connection-badge" id="serverStatus">
+                <span class="dot"></span>
+                <span>Server: Disconnected</span>
+            </div>
+        </header>
+
+        <main class="main">
+            <!-- Scenario Selection -->
+            <section class="card">
+                <h2>Scenario</h2>
+                <div class="scenario-grid" id="scenarioGrid">
+                    <button class="scenario-btn active" data-scenario="striker">🎯 Striker</button>
+                    <button class="scenario-btn" data-scenario="dribbling">🏃 Dribbling</button>
+                    <button class="scenario-btn" data-scenario="passing">🤝 Passing</button>
+                    <button class="scenario-btn" data-scenario="goalkeeper">🧤 Goalkeeper</button>
+                    <button class="scenario-btn" data-scenario="defense">🛡️ Defense</button>
+                </div>
+            </section>
+
+            <!-- ESP Devices -->
+            <section class="card">
+                <h2>ESP32 Devices</h2>
+                <div class="devices-list" id="devicesList">
+                    <div class="device-item" data-device="ESP_01">
+                        <span class="dot offline"></span>
+                        <span class="device-name">ESP_01</span>
+                        <span class="device-role">-</span>
+                    </div>
+                </div>
+                <button class="btn-secondary" id="addDeviceBtn">+ Add Device</button>
+            </section>
+
+            <!-- Actions -->
+            <section class="card actions">
+                <button class="btn-primary" id="startBtn">▶ Start Simulation</button>
+                <button class="btn-stop" id="stopBtn" disabled>⏹ Stop</button>
+            </section>
+
+            <!-- Status -->
+            <section class="card status">
+                <div class="status-item">
+                    <span class="label">Status:</span>
+                    <span class="value" id="simStatus">IDLE</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Time:</span>
+                    <span class="value" id="simTime">00:00</span>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

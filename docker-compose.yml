@@ -1,0 +1,33 @@
+# Docker Compose - RoboCup Infrastructure
+#
+# Inicia los servicios necesarios:
+# - Mosquitto MQTT Broker
+#
+# Uso:
+#   docker compose up -d
+
+services:
+  # MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: robocup-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./docker/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/data:/mosquitto/data
+      - ./docker/mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  # Comentado: RCSSServer (requiere imagen custom o instalación local)
+  # rcssserver:
+  #   build: ./docker/rcssserver
+  #   container_name: robocup-server
+  #   ports:
+  #     - "6000:6000/udp"
+  #   restart: unless-stopped
+
+networks:
+  default:
+    name: robocup-network
