@@ -107,6 +107,14 @@ class RoboCupBackend:
                         team_name = "TeamB"
                     elif role == PlayerRole.STRIKER:
                         team_name = "TeamA"
+                elif scenario_type == ScenarioType.DEFENSE:
+                    # Enforce roles based on order: 1st = Striker (A), 2nd = Defender (B)
+                    if player_num == 1:
+                        role = PlayerRole.STRIKER
+                        team_name = "TeamA"
+                    else:
+                        role = PlayerRole.DEFENDER
+                        team_name = "TeamB"
                 
                 players.append(Player(
                     device_id=device_id,

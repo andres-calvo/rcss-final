@@ -77,7 +77,7 @@ class FlaskServer:
                     {'id': 'striker', 'name': 'Striker', 'players': 1},
                     {'id': 'passing', 'name': 'Pases', 'players': 2},
                     {'id': 'goalkeeper', 'name': 'Goalkeeper', 'players': 2},
-                    {'id': 'defense', 'name': 'Defensa', 'players': 1}
+                    {'id': 'defense', 'name': 'Defensa', 'players': 2}
                 ]
             }
     
