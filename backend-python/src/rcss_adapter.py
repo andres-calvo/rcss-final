@@ -33,15 +33,26 @@ class PlayerInfo:
 
 
 @dataclass
+class FlagInfo:
+    """Información de una bandera visible para triangulación."""
+    name: str       # e.g., "f c", "f l t", "g r"
+    distance: float
+    angle: float
+
+
+@dataclass
 class SensorData:
     """Datos consolidados de sensores."""
     ball: Optional[BallInfo] = None
     goal: Optional[GoalInfo] = None
     teammates: Optional[List[PlayerInfo]] = None
+    flags: Optional[List[FlagInfo]] = None  # Banderas para triangulación
     
     def __post_init__(self):
         if self.teammates is None:
             self.teammates = []
+        if self.flags is None:
+            self.flags = []
 
 
 class RCSSAdapter:
@@ -63,6 +74,12 @@ class RCSSAdapter:
     REFEREE_PATTERN = re.compile(r'\(hear\s+\d+\s+referee\s+(\w+)\)')
     STAMINA_PATTERN = re.compile(r'\(stamina\s+(\d+)')
     SPEED_PATTERN = re.compile(r'\(speed\s+([\d.-]+)')
+    
+    # Patrones para banderas (flags) - usados para triangulación
+    # Banderas de campo: ((f c) 15.2 30) o ((f l t) 40.5 -45)
+    FLAG_PATTERN = re.compile(r'\(\(f\s+([^)]+)\)\s+([\d.-]+)\s+([\d.-]+)')
+    # Banderas de gol: ((g r) 30.0 10) o ((g l) 50.0 -20)
+    GOAL_FLAG_PATTERN = re.compile(r'\(\(g\s+([rl])\)\s+([\d.-]+)\s+([\d.-]+)')
 
     def parse_see(self, message: str) -> SensorData:
         """
@@ -72,11 +89,12 @@ class RCSSAdapter:
             message: Mensaje S-Expression del tipo (see time ...)
             
         Returns:
-            SensorData con información de bola, gol y jugadores visibles.
+            SensorData con información de bola, gol, jugadores y banderas visibles.
         """
         ball = None
         goal = None
         teammates = []
+        flags = []
 
         # Buscar bola
         ball_match = self.BALL_PATTERN.search(message)
@@ -102,7 +120,23 @@ class RCSSAdapter:
                 angle=float(player_match.group(3))
             ))
 
-        return SensorData(ball=ball, goal=goal, teammates=teammates)
+        # Buscar banderas de campo (f c), (f l t), (f r b 10), etc.
+        for flag_match in self.FLAG_PATTERN.finditer(message):
+            flags.append(FlagInfo(
+                name=f"f {flag_match.group(1)}",
+                distance=float(flag_match.group(2)),
+                angle=float(flag_match.group(3))
+            ))
+        
+        # Buscar banderas de gol (g r), (g l) - también útiles para triangulación
+        for goal_flag_match in self.GOAL_FLAG_PATTERN.finditer(message):
+            flags.append(FlagInfo(
+                name=f"g {goal_flag_match.group(1)}",
+                distance=float(goal_flag_match.group(2)),
+                angle=float(goal_flag_match.group(3))
+            ))
+
+        return SensorData(ball=ball, goal=goal, teammates=teammates, flags=flags)
 
     def parse_hear(self, message: str) -> Dict[str, Any]:
         """
@@ -192,6 +226,13 @@ class RCSSAdapter:
             sensors['teammates'] = [
                 {'id': p.player_id, 'dist': p.distance, 'angle': p.angle}
                 for p in sensor_data.teammates
+            ]
+        
+        # Banderas para triangulación
+        if sensor_data.flags:
+            sensors['flags'] = [
+                {'name': f.name, 'dist': f.distance, 'angle': f.angle}
+                for f in sensor_data.flags
             ]
         
         return {

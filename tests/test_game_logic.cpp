@@ -115,14 +115,14 @@ TEST_F(GameLogicTest, StrikerTurnsToBallWhenMisaligned) {
     
     // Ahora debe hacer DASH direccional (no TURN) para ángulos <= 90°
     EXPECT_EQ(action.type, ActionType::DASH);
-    EXPECT_FLOAT_EQ(action.params[0], 100.0f);  // Potencia máxima para 10m
+    EXPECT_FLOAT_EQ(action.params[0], 80.0f);  // Potencia reducida a 10m
     EXPECT_FLOAT_EQ(action.params[1], 45.0f);   // Dirección del dash
     
-    // Verificación adicional: Solo gira con ángulos extremos (> 90°)
+    // Verificación adicional: Con ángulo extremo (> 90°) también usa dash direccional
     logic.reset();
     sensors.ball = ObjectInfo(10.0f, 120.0f);  // Ángulo extremo
     action = logic.decide_action(sensors);
-    EXPECT_EQ(action.type, ActionType::TURN);
+    EXPECT_EQ(action.type, ActionType::DASH);  // Dash direccional siempre
 }
 
 TEST_F(GameLogicTest, StrikerShootsWhenCloseToGoal) {
@@ -147,6 +147,18 @@ TEST_F(GameLogicTest, StrikerDribblesWhenGoalFar) {
     
     EXPECT_EQ(action.type, ActionType::KICK);
     EXPECT_EQ(logic.get_state(), AgentState::DRIBBLING);
+}
+
+TEST_F(GameLogicTest, StrikerSearchesGoalWhenNotVisible) {
+    sensors.status = GameStatus::PLAYING;
+    sensors.role = PlayerRole::STRIKER;
+    sensors.ball = ObjectInfo(0.5f, 0.0f);   // Bola en rango de pateo
+    sensors.goal.visible = false;             // Arco NO visible
+    
+    Action action = logic.decide_action(sensors);
+    
+    // Debe GIRAR para buscar el arco, no patear ciegamente
+    EXPECT_EQ(action.type, ActionType::TURN);
 }
 
 // =============================================================================
@@ -229,4 +241,86 @@ TEST_F(GameLogicTest, DribblerDribblesForward) {
     
     EXPECT_EQ(action.type, ActionType::KICK);
     EXPECT_EQ(logic.get_state(), AgentState::DRIBBLING);
+}
+
+// =============================================================================
+// Tests de Localización (Triangulación)
+// =============================================================================
+
+#include "localization.h"
+
+TEST(LocalizationTest, ReturnsInvalidWithLessThanTwoFlags) {
+    FlagInfo flags[1];
+    flags[0] = FlagInfo("f c", 10.0f, 0.0f);
+    
+    PlayerPosition pos = Localization::estimate_position(flags, 1);
+    
+    EXPECT_FALSE(pos.valid);
+}
+
+TEST(LocalizationTest, CalculatesAngleToEnemyGoalFromCenter) {
+    // Jugador en el centro del campo, mirando hacia la derecha (heading = 0)
+    PlayerPosition pos(0.0f, 0.0f, 0.0f);
+    pos.valid = true;
+    
+    float angle = Localization::angle_to_enemy_goal(pos);
+    
+    // Arco enemigo está al frente (x = 52.5, y = 0)
+    EXPECT_NEAR(angle, 0.0f, 5.0f);
+}
+
+TEST(LocalizationTest, CalculatesAngleToEnemyGoalWhenFacingUp) {
+    // Jugador en el centro, mirando hacia arriba (heading = 90)
+    PlayerPosition pos(0.0f, 0.0f, 90.0f);
+    pos.valid = true;
+    
+    float angle = Localization::angle_to_enemy_goal(pos);
+    
+    // Debe girar -90 grados para mirar hacia el arco
+    EXPECT_NEAR(angle, -90.0f, 5.0f);
+}
+
+TEST(LocalizationTest, CalculatesAngleToEnemyGoalWhenFacingLeft) {
+    // Jugador mirando hacia la izquierda (heading = 180)
+    PlayerPosition pos(0.0f, 0.0f, 180.0f);
+    pos.valid = true;
+    
+    float angle = Localization::angle_to_enemy_goal(pos);
+    
+    // Debe girar 180 grados (o -180) para mirar hacia el arco
+    EXPECT_TRUE(std::abs(angle) > 170.0f);  // Cerca de 180
+}
+
+TEST(LocalizationTest, HandlesPositionNearGoal) {
+    // Jugador cerca del arco enemigo
+    PlayerPosition pos(40.0f, 10.0f, 45.0f);
+    pos.valid = true;
+    
+    float angle = Localization::angle_to_enemy_goal(pos);
+    
+    // El ángulo debe ser válido (entre -180 y 180)
+    EXPECT_TRUE(angle >= -180.0f && angle <= 180.0f);
+}
+
+TEST(LocalizationTest, StrikerUsesTriangulationWhenGoalNotVisible) {
+    // Test que el striker usa la posición estimada cuando el arco no es visible
+    GameLogic logic;
+    SensorData sensors;
+    
+    sensors.status = GameStatus::PLAYING;
+    sensors.role = PlayerRole::STRIKER;
+    sensors.ball = ObjectInfo(0.5f, 0.0f);  // Bola en rango de pateo
+    sensors.goal.visible = false;           // Arco NO visible
+    
+    // Simular posición estimada por triangulación
+    sensors.position = PlayerPosition(-20.0f, 0.0f, 0.0f);  // Centro-izquierdo, mirando derecha
+    sensors.position.valid = true;
+    
+    Action action = logic.decide_action(sensors);
+    
+    // Debe patear hacia el arco (no girar para buscarlo)
+    EXPECT_EQ(action.type, ActionType::KICK);
+    EXPECT_EQ(logic.get_state(), AgentState::DRIBBLING);
+    // El ángulo debe ser cercano a 0 (hacia el arco que está adelante)
+    EXPECT_NEAR(action.params[1], 0.0f, 15.0f);
 }

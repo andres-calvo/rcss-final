@@ -10,6 +10,7 @@
  */
 
 #include "messages.h"
+#include "localization.h"
 
 namespace robocup {
 
@@ -28,6 +29,19 @@ enum class AgentState : uint8_t {
 };
 
 /**
+ * @brief Fases de la jugada coordinada de kickoff.
+ */
+enum class KickoffPhase : uint8_t {
+    INITIAL = 0,         // Passer approaching ball, receiver running to position
+    PASSER_HAS_BALL,     // Passer has ball, about to pass
+    PASS_TO_RECEIVER,    // Ball passed, receiver should receive
+    RECEIVER_HAS_BALL,   // Receiver has ball, dribbling
+    RETURN_PASS,         // Receiver returning pass to passer
+    PASSER_SHOOTS,       // Passer has ball for final shot
+    COMPLETED            // Play finished
+};
+
+/**
  * @brief Constantes de juego configurables.
  */
 struct GameConfig {
@@ -43,11 +57,14 @@ struct GameConfig {
  */
 class GameLogic {
 public:
-    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0) {}
+    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0) {}
     
     void reset() { 
         current_state_ = AgentState::IDLE;
         dribble_cycle_ = 0;
+        goal_search_cycles_ = 0;
+        kickoff_phase_ = KickoffPhase::INITIAL;
+        receiver_run_cycles_ = 0;
     }
     
     AgentState get_state() const { return current_state_; }
@@ -93,6 +110,7 @@ public:
 private:
     AgentState current_state_;
     int dribble_cycle_;  // Contador para alternar entre kick y dash
+    int goal_search_cycles_;  // Contador de ciclos buscando el arco
     
     static constexpr float DRIBBLE_DISTANCE = 8.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
@@ -146,11 +164,20 @@ private:
     }
     
     /**
-     * @brief Dribbling: patear moderado hacia adelante
+     * @brief Dribbling: patear hacia el arco enemigo usando triangulación.
+     * Si tenemos posición válida, calcular dirección hacia el arco.
+     * Si no, patear hacia adelante como fallback.
      */
-    Action dribble_forward() {
+    Action dribble_forward(const SensorData& sensors) {
         current_state_ = AgentState::DRIBBLING;
-        return Action::kick(30, 0);  // Kick más fuerte para avanzar
+        
+        // Si tenemos posición válida por triangulación, driblear hacia el arco
+        if (sensors.position.valid) {
+            float angle_to_goal = Localization::angle_to_enemy_goal(sensors.position);
+            return Action::kick(30, angle_to_goal);
+        }
+        
+        return Action::kick(30, 0);  // Fallback: hacia adelante
     }
     
     // ========== LÓGICA POR ROL ==========
@@ -161,6 +188,7 @@ private:
         
         // PRIORIDAD 1: Si no veo balón -> buscar
         if (!ball.visible) {
+            goal_search_cycles_ = 0;  // Reset búsqueda de arco
             return search_ball();
         }
         
@@ -168,20 +196,43 @@ private:
         if (ball.distance <= GameConfig::KICKABLE_DISTANCE) {
             // Si vemos el gol y está relativamente cerca, DISPARAR
             if (goal.visible && goal.distance < GameConfig::SHOOTING_DISTANCE) {
+                goal_search_cycles_ = 0;
                 return shoot_to_goal(goal);
             }
             
-            // Si no vemos gol pero la bola está muy cerca y venimos driblando,
-            // disparar hacia adelante (probablemente cerca del arco)
-            if (dribble_cycle_ > 50) {  // Llevamos rato jugando
-                // Cada ciertos ciclos, intentar un disparo hacia adelante
-                if (dribble_cycle_ % 20 == 0) {
-                    current_state_ = AgentState::SHOOTING;
-                    return Action::kick(100, 0);  // Disparo fuerte hacia adelante
-                }
+            // Si vemos el gol pero está lejos, driblear HACIA el arco
+            if (goal.visible) {
+                goal_search_cycles_ = 0;
+                current_state_ = AgentState::DRIBBLING;
+                return Action::kick(30, goal.angle);  // Dribble hacia el arco
             }
             
-            return dribble_forward();
+            // NO vemos el arco: usar triangulación mejorada si está disponible
+            if (sensors.position.valid) {
+                // Si estamos en zona de gol (x > 35), disparar al centro del arco
+                if (sensors.position.x > 35.0f) {
+                    current_state_ = AgentState::SHOOTING;
+                    // Calcular ángulo hacia el CENTRO del arco (52.5, 0)
+                    float angle_to_goal = Localization::angle_to_target(
+                        sensors.position, 52.5f, 0.0f);
+                    return Action::kick(100, angle_to_goal);  // Disparo fuerte!
+                }
+                
+                // Si estamos lejos, driblear hacia el arco usando triangulación
+                float angle_to_goal = Localization::angle_to_enemy_goal(sensors.position);
+                current_state_ = AgentState::DRIBBLING;
+                return Action::kick(30, angle_to_goal);
+            }
+            
+            // Sin triangulación: girar para buscar el arco
+            goal_search_cycles_++;
+            if (goal_search_cycles_ < 5) {
+                current_state_ = AgentState::SEARCHING_BALL;
+                return Action::turn(30);  // Girar para buscar arco
+            }
+            
+            // Fallback: después de 5 ciclos sin encontrar, dribble hacia adelante
+            return dribble_forward(sensors);
         }
         
         // PRIORIDAD 3: Acercarse al balón (incluye dribbling automático si está cerca)
@@ -199,7 +250,7 @@ private:
             return approach_ball(ball);
         }
         
-        return dribble_forward();
+        return dribble_forward(sensors);
     }
     
     Action decide_passer(const SensorData& sensors) {
@@ -219,7 +270,7 @@ private:
             return Action::kick(GameConfig::KICK_POWER_PASS, sensors.teammates[0].angle);
         }
         
-        return dribble_forward();
+        return dribble_forward(sensors);
     }
     
     Action decide_receiver(const SensorData& sensors) {

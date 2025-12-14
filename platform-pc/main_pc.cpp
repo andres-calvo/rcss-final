@@ -17,6 +17,7 @@
 
 #include "game_logic.h"
 #include "messages.h"
+#include "localization.h"
 
 #if HAS_PAHO_MQTT
 #include <mqtt/async_client.h>
@@ -219,6 +220,74 @@ private:
                     sensors.ball.angle = std::stof(json.substr(colon + 1, 10));
                 }
             }
+        }
+        
+        // Parsear goal distance/angle
+        size_t goal_pos = json.find("\"goal\"");
+        if (goal_pos != std::string::npos) {
+            size_t dist_pos = json.find("\"dist\"", goal_pos);
+            size_t angle_pos = json.find("\"angle\"", goal_pos);
+            if (dist_pos != std::string::npos && angle_pos != std::string::npos) {
+                sensors.goal.visible = true;
+                size_t colon = json.find(":", dist_pos);
+                if (colon != std::string::npos) {
+                    sensors.goal.distance = std::stof(json.substr(colon + 1, 10));
+                }
+                colon = json.find(":", angle_pos);
+                if (colon != std::string::npos) {
+                    sensors.goal.angle = std::stof(json.substr(colon + 1, 10));
+                }
+            }
+        }
+        
+        // Parsear flags para triangulación
+        sensors.flag_count = 0;
+        size_t flags_pos = json.find("\"flags\"");
+        if (flags_pos != std::string::npos) {
+            // Buscar cada bandera en el array
+            size_t search_start = flags_pos;
+            while (sensors.flag_count < robocup::SensorData::MAX_FLAGS) {
+                size_t name_pos = json.find("\"name\"", search_start);
+                if (name_pos == std::string::npos || name_pos > json.find("]", flags_pos)) break;
+                
+                // Extraer nombre
+                size_t name_start = json.find("\"", name_pos + 6) + 1;
+                size_t name_end = json.find("\"", name_start);
+                std::string name = json.substr(name_start, name_end - name_start);
+                
+                // Extraer dist y angle
+                size_t dist_pos = json.find("\"dist\"", name_end);
+                size_t angle_pos = json.find("\"angle\"", name_end);
+                
+                if (dist_pos != std::string::npos && angle_pos != std::string::npos) {
+                    robocup::FlagInfo& flag = sensors.flags[sensors.flag_count];
+                    
+                    // Copiar nombre
+                    for (size_t i = 0; i < 15 && i < name.size(); ++i) {
+                        flag.name[i] = name[i];
+                    }
+                    flag.name[std::min(name.size(), (size_t)15)] = '\0';
+                    
+                    size_t colon = json.find(":", dist_pos);
+                    if (colon != std::string::npos) {
+                        flag.distance = std::stof(json.substr(colon + 1, 10));
+                    }
+                    colon = json.find(":", angle_pos);
+                    if (colon != std::string::npos) {
+                        flag.angle = std::stof(json.substr(colon + 1, 10));
+                    }
+                    flag.visible = true;
+                    sensors.flag_count++;
+                }
+                
+                search_start = angle_pos + 1;
+            }
+        }
+        
+        // Calcular posición usando triangulación si hay suficientes banderas
+        if (sensors.flag_count >= 2) {
+            sensors.position = robocup::Localization::estimate_position(
+                sensors.flags, sensors.flag_count);
         }
         
         return sensors;
