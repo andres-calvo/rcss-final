@@ -114,7 +114,7 @@ private:
     KickoffPhase kickoff_phase_;
     int receiver_run_cycles_;
     
-    static constexpr float DRIBBLE_DISTANCE = 8.0f;  // Zona de dribble grande
+    static constexpr float DRIBBLE_DISTANCE = 5.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
     
     static float abs(float val) { return val < 0 ? -val : val; }
@@ -175,6 +175,7 @@ private:
         
         // Si tenemos posición válida por triangulación, driblear hacia el arco
         if (sensors.position.valid) {
+            // TODO: Aqui no estamos validando de que dentro de las banderas este el arco
             float angle_to_goal = Localization::angle_to_enemy_goal(sensors.position);
             return Action::kick(30, angle_to_goal);
         }
@@ -211,6 +212,7 @@ private:
             
             // NO vemos el arco: usar triangulación mejorada si está disponible
             if (sensors.position.valid) {
+                // TODO: Aqui no estamos validando de que dentro de las banderas este el arco
                 // Si estamos en zona de gol (x > 35), disparar al centro del arco
                 if (sensors.position.x > 35.0f) {
                     current_state_ = AgentState::SHOOTING;
@@ -226,6 +228,7 @@ private:
                 return Action::kick(30, angle_to_goal);
             }
             
+            // TODO: QUe pasa si por buscar el arco pierdo el balon?
             // Sin triangulación: girar para buscar el arco
             goal_search_cycles_++;
             if (goal_search_cycles_ < 5) {

@@ -265,6 +265,7 @@ static void agent_task(void* pvParameters) {
         if (xQueueReceive(sensor_queue, &sensors, pdMS_TO_TICKS(100)) == pdTRUE) {
             // Verificar rate limit (75ms entre comandos)
             TickType_t now = xTaskGetTickCount();
+            // TODO: Analizar el uso de VtaskDelay 
             if ((now - last_send_time) < pdMS_TO_TICKS(MIN_SEND_INTERVAL_MS)) {
                 continue;  // Esperar más tiempo antes de enviar
             }
@@ -272,6 +273,7 @@ static void agent_task(void* pvParameters) {
             // Decidir acción
             robocup::Action action = game_logic.decide_action(sensors);
             
+            // TODO: Esta logica deberia estar en el game logic, esto viene del platform-pc entonces ajusta alla tambien
             // Si es kick pero la bola está fuera de rango, convertir a dash
             if (action.type == robocup::ActionType::KICK) {
                 if (!sensors.ball.visible || sensors.ball.distance > 0.8f) {
