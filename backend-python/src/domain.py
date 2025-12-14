@@ -127,7 +127,10 @@ class RCSSConnection:
                 10: (-25, -10), # Defensa
                 11: (-25, 10),  # Defensa
             }
-            x, y = positions.get(uniform_number, (-10, 0))
+            if is_goalie:
+                x, y = (-50, 0)
+            else:
+                x, y = positions.get(uniform_number, (-10, 0))
             move_cmd = f"(move {x} {y})"
             logger.info(f"Moving player to ({x}, {y})")
             self.socket.sendto(move_cmd.encode(), (self.host, self.assigned_port))

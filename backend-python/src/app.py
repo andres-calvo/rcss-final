@@ -100,9 +100,18 @@ class RoboCupBackend:
             
             for device_id, role_str in roles_config.items():
                 role = PlayerRole[role_str.upper()]
+                # Determinar equipo según el escenario
+                team_name = "TeamA"
+                if scenario_type == ScenarioType.GOALKEEPER:
+                    if role == PlayerRole.GOALKEEPER:
+                        team_name = "TeamB"
+                    elif role == PlayerRole.STRIKER:
+                        team_name = "TeamA"
+                
                 players.append(Player(
                     device_id=device_id,
                     role=role,
+                    team_name=team_name,
                     uniform_number=player_num
                 ))
                 player_num += 1

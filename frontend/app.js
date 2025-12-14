@@ -195,6 +195,11 @@ class RoboCupApp {
         this.scenarioGrid.querySelectorAll('.scenario-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.scenario === scenario);
         });
+
+        // Auto-add second device for multi-player scenarios
+        if ((scenario === 'passing' || scenario === 'goalkeeper') && this.devices.size < 2) {
+            this.addDevice();
+        }
     }
 
     addDevice() {
@@ -230,6 +235,8 @@ class RoboCupApp {
         this.devices.forEach((_, id) => {
             if (this.selectedScenario === 'passing') {
                 roles[id] = i === 0 ? 'PASSER' : 'RECEIVER';
+            } else if (this.selectedScenario === 'goalkeeper') {
+                roles[id] = i === 0 ? 'STRIKER' : 'GOALKEEPER';
             } else {
                 roles[id] = roleMap[this.selectedScenario];
             }

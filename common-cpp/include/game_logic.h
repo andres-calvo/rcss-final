@@ -111,6 +111,8 @@ private:
     AgentState current_state_;
     int dribble_cycle_;  // Contador para alternar entre kick y dash
     int goal_search_cycles_;  // Contador de ciclos buscando el arco
+    KickoffPhase kickoff_phase_;
+    int receiver_run_cycles_;
     
     static constexpr float DRIBBLE_DISTANCE = 8.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
@@ -304,6 +306,17 @@ private:
             return Action::catch_ball(ball.angle);
         }
         
+        // Restringir movimiento: no salir del área (x > 35 o x < -35)
+        if (sensors.position.valid) {
+            if (abs(sensors.position.x) < 35.0f) {
+                current_state_ = AgentState::DEFENDING;
+                // Volver al arco (50 o -50 según lado actual)
+                float target_x = (sensors.position.x > 0) ? 50.0f : -50.0f;
+                float angle_to_home = Localization::angle_to_target(sensors.position, target_x, 0.0f);
+                return Action::dash(80, angle_to_home);
+            }
+        }
+
         // Moverse hacia el balón si está cerca
         if (ball.distance < 10.0f) {
             return Action::dash(30, ball.angle);
