@@ -5,6 +5,7 @@ Proporciona endpoints WebSocket para:
 - Iniciar/detener simulaciones
 - Recibir estado del juego en tiempo real
 - Logs del sistema
+- Modo debug: enviar comandos y ver logs del jugador
 """
 
 import os
@@ -28,6 +29,8 @@ class FlaskServer:
     - simulation/stop: Detener simulación
     - game/status: Estado del juego (servidor -> cliente)
     - system/log: Logs del sistema (servidor -> cliente)
+    - debug/command: Comando manual desde UI (cliente -> servidor)
+    - player/log: Logs del jugador (servidor -> cliente)
     """
     
     def __init__(self, host: str = "0.0.0.0", port: int = 5001):
@@ -46,6 +49,7 @@ class FlaskServer:
         # Callbacks para eventos
         self.on_start_simulation: Optional[Callable[[Dict[str, Any]], bool]] = None
         self.on_stop_simulation: Optional[Callable[[], None]] = None
+        self.on_debug_command: Optional[Callable[[str, Dict[str, Any]], None]] = None
         
         self._setup_routes()
         self._setup_socket_events()
@@ -117,6 +121,21 @@ class FlaskServer:
                 self.on_stop_simulation()
                 emit('game/status', {'state': 'STOPPED'})
                 emit('system/log', {'msg': 'Simulation stopped', 'level': 'INFO'})
+        
+        @self.socketio.on('debug/command')
+        def handle_debug_command(data):
+            """Maneja comando de debug desde la UI."""
+            device_id = data.get('device_id', 'ESP_01')
+            action = data.get('action', '')
+            params = data.get('params', [])
+            
+            logger.info(f"Debug command: {action}({params}) -> {device_id}")
+            
+            if self.on_debug_command:
+                self.on_debug_command(device_id, {'action': action, 'params': params})
+                emit('system/log', {'msg': f'Command sent: {action}', 'level': 'INFO'})
+            else:
+                emit('system/log', {'msg': 'No debug handler configured', 'level': 'WARNING'})
     
     def emit_game_status(self, status: Dict[str, Any]) -> None:
         """
@@ -136,6 +155,21 @@ class FlaskServer:
             level: Nivel (INFO, WARNING, ERROR)
         """
         self.socketio.emit('system/log', {'msg': message, 'level': level})
+    
+    def emit_player_log(self, device_id: str, message: str, log_type: str = "info") -> None:
+        """
+        Emite un log del jugador a todos los clientes.
+        
+        Args:
+            device_id: ID del dispositivo/jugador
+            message: Mensaje del log
+            log_type: Tipo de log (info, see, hear, cmd, error)
+        """
+        self.socketio.emit('player/log', {
+            'device_id': device_id,
+            'message': message,
+            'type': log_type
+        })
     
     def run(self, debug: bool = False) -> None:
         """Inicia el servidor."""

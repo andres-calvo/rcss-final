@@ -65,6 +65,10 @@ class RoboCupBackend:
         self.running = False
         self.game_loop_thread = None
         
+        # Rate limiting para sensores (evitar drift de sincronización)
+        self.sensor_cycle_count = {}
+        self.SENSOR_PUBLISH_INTERVAL = 3  # Publicar cada N mensajes (see)
+        
         # Configurar callbacks
         self._setup_callbacks()
     
@@ -74,6 +78,9 @@ class RoboCupBackend:
         # Flask -> SimulationManager
         self.flask.on_start_simulation = self._handle_start_simulation
         self.flask.on_stop_simulation = self._handle_stop_simulation
+        
+        # Flask -> Debug commands
+        self.flask.on_debug_command = self._handle_debug_command
         
         # MQTT -> Comandos
         self.mqtt.on_player_action = self._handle_player_action
@@ -135,6 +142,27 @@ class RoboCupBackend:
         if conn:
             conn.send_command(command)
             logger.debug(f"Sent to RCSS [{device_id}]: {command}")
+            # Emit to debug panel
+            self.flask.emit_player_log(device_id, f"→ {command}", "cmd")
+    
+    def _handle_debug_command(self, device_id: str, action: Dict[str, Any]):
+        """Maneja comando de debug desde la UI web."""
+        # Convertir a comando RCSS
+        command = self.adapter.to_rcss_command(action)
+        
+        if not command:
+            self.flask.emit_player_log(device_id, "Empty command", "error")
+            return
+        
+        # Enviar al simulador
+        conn = self.sim_manager.connections.get(device_id)
+        if conn:
+            conn.send_command(command)
+            logger.info(f"Debug command sent [{device_id}]: {command}")
+            self.flask.emit_player_log(device_id, f"→ {command}", "cmd")
+        else:
+            logger.warning(f"No connection for device {device_id}")
+            self.flask.emit_player_log(device_id, f"No connection for {device_id}", "error")
     
     def _handle_status_change(self, status: GameStatus):
         """Notifica cambio de estado al frontend."""
@@ -148,7 +176,8 @@ class RoboCupBackend:
         logger.info("Game loop started")
         
         while self.running:
-            if self.sim_manager.status != GameStatus.PLAYING:
+            # Procesar si estamos en BEFORE_KICK_OFF o PLAYING
+            if self.sim_manager.status not in (GameStatus.BEFORE_KICK_OFF, GameStatus.PLAYING):
                 time.sleep(0.1)
                 continue
             
@@ -164,12 +193,40 @@ class RoboCupBackend:
                 message = conn.receive(timeout=0.05)
                 
                 if message:
-                    # Parsear según tipo
+                    # Debug: mostrar primeros 100 caracteres del mensaje
+                    logger.debug(f"RX [{device_id}]: {message[:100]}...")
+                    
+                    # Verificar si es un mensaje del referee para actualizar estado
+                    if message.startswith("(hear"):
+                        referee_state = self.adapter.parse_referee(message)
+                        if referee_state:
+                            self._handle_referee_state(referee_state)
+                            # Emit referee message to debug panel
+                            self.flask.emit_player_log(device_id, f"Referee: {referee_state}", "hear")
+                    
+                    # Parsear datos de sensores
                     if message.startswith("(see"):
                         sensor_data = self.adapter.parse_see(message)
                         player = self.sim_manager.players.get(device_id)
                         
-                        if player:
+                        # Rate limiting: solo publicar cada N ciclos
+                        if device_id not in self.sensor_cycle_count:
+                            self.sensor_cycle_count[device_id] = 0
+                        self.sensor_cycle_count[device_id] += 1
+                        
+                        should_publish = (self.sensor_cycle_count[device_id] % self.SENSOR_PUBLISH_INTERVAL == 0)
+                        
+                        # Debug: mostrar si se encontró la bola (solo cuando publicamos)
+                        if sensor_data.ball and should_publish:
+                            logger.info(f"Ball detected: dist={sensor_data.ball.distance:.1f}, angle={sensor_data.ball.angle:.1f}")
+                            # Emit ball info to debug panel
+                            self.flask.emit_player_log(
+                                device_id, 
+                                f"Ball: dist={sensor_data.ball.distance:.1f}, angle={sensor_data.ball.angle:.1f}",
+                                "see"
+                            )
+                        
+                        if player and should_publish:
                             # Construir y publicar estado
                             state = self.adapter.to_json_sensors(
                                 sensor_data,
@@ -181,6 +238,32 @@ class RoboCupBackend:
             time.sleep(0.05)  # ~20 Hz
         
         logger.info("Game loop stopped")
+    
+    def _handle_referee_state(self, referee_state: str):
+        """Maneja cambios de estado del referee."""
+        old_status = self.sim_manager.status
+        
+        # Transición kick_off -> play_on
+        if referee_state == "play_on":
+            if old_status == GameStatus.BEFORE_KICK_OFF:
+                self.sim_manager.status = GameStatus.PLAYING
+                logger.info("State transition: BEFORE_KICK_OFF -> PLAYING")
+                if self.sim_manager.on_status_change:
+                    self.sim_manager.on_status_change(self.sim_manager.status)
+        
+        # Nuevo kickoff (después de gol, por ejemplo)
+        elif referee_state in ("kick_off_l", "kick_off_r"):
+            if old_status == GameStatus.PLAYING:
+                self.sim_manager.status = GameStatus.BEFORE_KICK_OFF
+                logger.info(f"State transition: PLAYING -> BEFORE_KICK_OFF ({referee_state})")
+                if self.sim_manager.on_status_change:
+                    self.sim_manager.on_status_change(self.sim_manager.status)
+        
+        # Detección de gol
+        elif referee_state in ("goal_l", "goal_r"):
+            logger.info(f"Goal detected: {referee_state}")
+            if self.sim_manager.on_goal:
+                self.sim_manager.on_goal()
     
     def run(self):
         """Inicia el backend completo."""

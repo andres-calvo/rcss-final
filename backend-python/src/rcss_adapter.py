@@ -55,10 +55,12 @@ class RCSSAdapter:
     """
 
     # Patrones regex para parsing de S-Expressions
-    BALL_PATTERN = re.compile(r'\(\(b\)\s+([\d.-]+)\s+([\d.-]+)\)')
+    # BALL_PATTERN: RCSSServer envía (b) dist angle [dir_change dist_change] - capturamos dist y angle
+    BALL_PATTERN = re.compile(r'\(\(b\)\s+([\d.-]+)\s+([\d.-]+)(?:\s+[\d.-]+)*\)')
     GOAL_PATTERN = re.compile(r'\(\(g\s+[rl]\)\s+([\d.-]+)\s+([\d.-]+)\)')
     PLAYER_PATTERN = re.compile(r'\(\(p\s+"[^"]+"\s+(\d+)\)\s+([\d.-]+)\s+([\d.-]+)\)')
     HEAR_PATTERN = re.compile(r'\(hear\s+\d+\s+(\d+)\s+"([^"]+)"\)')
+    REFEREE_PATTERN = re.compile(r'\(hear\s+\d+\s+referee\s+(\w+)\)')
     STAMINA_PATTERN = re.compile(r'\(stamina\s+(\d+)')
     SPEED_PATTERN = re.compile(r'\(speed\s+([\d.-]+)')
 
@@ -119,6 +121,22 @@ class RCSSAdapter:
                 'message': match.group(2)
             }
         return {'sender': None, 'message': None}
+
+    def parse_referee(self, message: str) -> Optional[str]:
+        """
+        Parsea un mensaje de referee del simulador.
+        
+        Args:
+            message: Mensaje S-Expression del tipo (hear time referee play_on)
+            
+        Returns:
+            Estado del referee (kick_off_l, kick_off_r, play_on, goal_l, etc.)
+            o None si no es un mensaje de referee.
+        """
+        match = self.REFEREE_PATTERN.search(message)
+        if match:
+            return match.group(1)
+        return None
 
     def parse_sense_body(self, message: str) -> Dict[str, Any]:
         """

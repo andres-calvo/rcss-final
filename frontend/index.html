@@ -14,9 +14,12 @@
     <div class="app">
         <header class="header">
             <h1>⚽ RoboCup <span class="accent">Control</span></h1>
-            <div class="connection-badge" id="serverStatus">
-                <span class="dot"></span>
-                <span>Server: Disconnected</span>
+            <div class="header-controls">
+                <button class="debug-toggle" id="debugToggle">🐛 Debug</button>
+                <div class="connection-badge" id="serverStatus">
+                    <span class="dot"></span>
+                    <span>Server: Disconnected</span>
+                </div>
             </div>
         </header>
 
@@ -61,6 +64,51 @@
                 <div class="status-item">
                     <span class="label">Time:</span>
                     <span class="value" id="simTime">00:00</span>
+                </div>
+            </section>
+
+            <!-- Debug Panel -->
+            <section class="card debug-panel" id="debugPanel">
+                <h2>🐛 Debug Mode</h2>
+
+                <!-- Device Selector -->
+                <div class="debug-device-select">
+                    <label>Target Device:</label>
+                    <select id="debugDeviceSelect">
+                        <option value="ESP_01">ESP_01</option>
+                    </select>
+                </div>
+
+                <!-- Command Buttons -->
+                <div class="debug-commands">
+                    <div class="cmd-row">
+                        <button class="cmd-btn" data-cmd="dash">DASH</button>
+                        <input type="number" id="dashPower" placeholder="power" value="100" min="-100" max="100">
+                        <input type="number" id="dashDir" placeholder="dir" value="0" min="-180" max="180">
+                    </div>
+                    <div class="cmd-row">
+                        <button class="cmd-btn" data-cmd="turn">TURN</button>
+                        <input type="number" id="turnAngle" placeholder="angle" value="45" min="-180" max="180">
+                    </div>
+                    <div class="cmd-row">
+                        <button class="cmd-btn" data-cmd="kick">KICK</button>
+                        <input type="number" id="kickPower" placeholder="power" value="100" min="0" max="100">
+                        <input type="number" id="kickDir" placeholder="dir" value="0" min="-180" max="180">
+                    </div>
+                    <div class="cmd-row">
+                        <button class="cmd-btn" data-cmd="move">MOVE</button>
+                        <input type="number" id="moveX" placeholder="x" value="-10" min="-52" max="52">
+                        <input type="number" id="moveY" placeholder="y" value="0" min="-34" max="34">
+                    </div>
+                </div>
+
+                <!-- Logs -->
+                <div class="debug-logs-header">
+                    <span>Player Logs</span>
+                    <button class="btn-clear" id="clearLogsBtn">Clear</button>
+                </div>
+                <div class="debug-logs" id="debugLogs">
+                    <div class="log-entry log-info">Waiting for logs...</div>
                 </div>
             </section>
         </main>

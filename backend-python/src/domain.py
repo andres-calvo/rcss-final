@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class GameStatus(Enum):
     """Estados posibles del juego."""
     IDLE = "IDLE"
+    BEFORE_KICK_OFF = "BEFORE_KICK_OFF"
     PLAYING = "PLAYING"
     FINISHED = "FINISHED"
 
@@ -112,19 +113,19 @@ class RCSSConnection:
             self.assigned_port = server_addr[1]
             
             # Ubicar jugador en el campo (posición inicial según número)
-            # Posiciones aproximadas para cada jugador
+            # Posiciones aproximadas para cada jugador (más cerca del centro para pruebas)
             positions = {
-                1: (-50, 0),    # Portero
-                2: (-35, -20),  # Defensa
-                3: (-35, 20),   # Defensa
-                4: (-20, -25),  # Medio
+                1: (-10, -5),   # Jugador 1 - cerca del centro
+                2: (-10, 5),    # Jugador 2 - cerca del centro
+                3: (-15, -10),  # Jugador 3
+                4: (-15, 10),   # Jugador 4
                 5: (-20, 0),    # Medio
-                6: (-20, 25),   # Medio
-                7: (-5, -30),   # Delantero
+                6: (-20, 15),   # Medio
+                7: (-5, -15),   # Delantero
                 8: (-5, 0),     # Striker principal
-                9: (-5, 30),    # Delantero
-                10: (-40, -10), # Defensa
-                11: (-40, 10),  # Defensa
+                9: (-5, 15),    # Delantero
+                10: (-25, -10), # Defensa
+                11: (-25, 10),  # Defensa
             }
             x, y = positions.get(uniform_number, (-10, 0))
             move_cmd = f"(move {x} {y})"
@@ -397,7 +398,9 @@ class SimulationManager:
             self.trainer.kickoff()
             logger.info("Kickoff sent via trainer")
         
-        self.status = GameStatus.PLAYING
+        # Estado inicial: BEFORE_KICK_OFF (esperando que se patee el balón)
+        # Cambiará a PLAYING cuando el referee envíe play_on
+        self.status = GameStatus.BEFORE_KICK_OFF
         self.start_time = time.time()
         
         if self.on_status_change:

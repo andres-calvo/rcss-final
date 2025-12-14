@@ -106,12 +106,23 @@ TEST_F(GameLogicTest, StrikerApproachesBallWhenFarAway) {
 TEST_F(GameLogicTest, StrikerTurnsToBallWhenMisaligned) {
     sensors.status = GameStatus::PLAYING;
     sensors.role = PlayerRole::STRIKER;
+    
+    // NUEVO COMPORTAMIENTO: Con ángulo 45°, ahora usa dash direccional
+    // porque la nueva lógica prioriza movimiento sobre giros
     sensors.ball = ObjectInfo(10.0f, 45.0f);  // Bola a 45 grados
     
     Action action = logic.decide_action(sensors);
     
+    // Ahora debe hacer DASH direccional (no TURN) para ángulos <= 90°
+    EXPECT_EQ(action.type, ActionType::DASH);
+    EXPECT_FLOAT_EQ(action.params[0], 100.0f);  // Potencia máxima para 10m
+    EXPECT_FLOAT_EQ(action.params[1], 45.0f);   // Dirección del dash
+    
+    // Verificación adicional: Solo gira con ángulos extremos (> 90°)
+    logic.reset();
+    sensors.ball = ObjectInfo(10.0f, 120.0f);  // Ángulo extremo
+    action = logic.decide_action(sensors);
     EXPECT_EQ(action.type, ActionType::TURN);
-    EXPECT_FLOAT_EQ(action.params[0], 45.0f);
 }
 
 TEST_F(GameLogicTest, StrikerShootsWhenCloseToGoal) {

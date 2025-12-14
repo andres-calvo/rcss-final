@@ -1,6 +1,6 @@
 /**
- * RoboCup Control Panel - Simplified
- * Solo controles de simulación y estado de ESPs
+ * RoboCup Control Panel - With Debug Mode
+ * Controles de simulación, estado de ESPs y modo debugging
  */
 
 class RoboCupApp {
@@ -11,6 +11,8 @@ class RoboCupApp {
         this.isRunning = false;
         this.startTime = null;
         this.timerInterval = null;
+        this.debugMode = false;
+        this.maxLogs = 100;
 
         this.init();
     }
@@ -30,6 +32,13 @@ class RoboCupApp {
         this.stopBtn = document.getElementById('stopBtn');
         this.simStatus = document.getElementById('simStatus');
         this.simTime = document.getElementById('simTime');
+
+        // Debug elements
+        this.debugToggle = document.getElementById('debugToggle');
+        this.debugPanel = document.getElementById('debugPanel');
+        this.debugDeviceSelect = document.getElementById('debugDeviceSelect');
+        this.debugLogs = document.getElementById('debugLogs');
+        this.clearLogsBtn = document.getElementById('clearLogsBtn');
     }
 
     bindEvents() {
@@ -41,6 +50,15 @@ class RoboCupApp {
         this.addDeviceBtn.addEventListener('click', () => this.addDevice());
         this.startBtn.addEventListener('click', () => this.startSimulation());
         this.stopBtn.addEventListener('click', () => this.stopSimulation());
+
+        // Debug events
+        this.debugToggle.addEventListener('click', () => this.toggleDebugMode());
+        this.clearLogsBtn.addEventListener('click', () => this.clearLogs());
+
+        // Command buttons
+        document.querySelectorAll('.cmd-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.sendDebugCommand(btn.dataset.cmd));
+        });
     }
 
     connectSocket() {
@@ -53,16 +71,124 @@ class RoboCupApp {
         this.socket.on('connect', () => {
             this.serverStatus.classList.add('connected');
             this.serverStatus.querySelector('span:last-child').textContent = 'Server: Connected';
+            this.addLog('Connected to server', 'info');
         });
 
         this.socket.on('disconnect', () => {
             this.serverStatus.classList.remove('connected');
             this.serverStatus.querySelector('span:last-child').textContent = 'Server: Disconnected';
+            this.addLog('Disconnected from server', 'error');
         });
 
         this.socket.on('game/status', data => this.handleGameStatus(data));
         this.socket.on('device/status', data => this.handleDeviceStatus(data));
+
+        // Debug events
+        this.socket.on('player/log', data => this.handlePlayerLog(data));
+        this.socket.on('system/log', data => this.addLog(data.msg, data.level?.toLowerCase() || 'info'));
     }
+
+    // ============ Debug Mode ============
+
+    toggleDebugMode() {
+        this.debugMode = !this.debugMode;
+        this.debugToggle.classList.toggle('active', this.debugMode);
+        this.debugPanel.classList.toggle('visible', this.debugMode);
+
+        if (this.debugMode) {
+            this.addLog('Debug mode enabled', 'info');
+        }
+    }
+
+    sendDebugCommand(cmd) {
+        const deviceId = this.debugDeviceSelect.value;
+        let params = [];
+
+        switch (cmd) {
+            case 'dash':
+                params = [
+                    parseFloat(document.getElementById('dashPower').value) || 100,
+                    parseFloat(document.getElementById('dashDir').value) || 0
+                ];
+                break;
+            case 'turn':
+                params = [parseFloat(document.getElementById('turnAngle').value) || 45];
+                break;
+            case 'kick':
+                params = [
+                    parseFloat(document.getElementById('kickPower').value) || 100,
+                    parseFloat(document.getElementById('kickDir').value) || 0
+                ];
+                break;
+            case 'move':
+                params = [
+                    parseFloat(document.getElementById('moveX').value) || 0,
+                    parseFloat(document.getElementById('moveY').value) || 0
+                ];
+                break;
+        }
+
+        const command = { device_id: deviceId, action: cmd, params };
+        this.socket.emit('debug/command', command);
+        this.addLog(`→ ${cmd.toUpperCase()}(${params.join(', ')}) → ${deviceId}`, 'cmd');
+    }
+
+    handlePlayerLog(data) {
+        const type = data.type || 'info';
+        const deviceId = data.device_id || '';
+        const message = data.message || '';
+
+        // Format based on type
+        let prefix = deviceId ? `[${deviceId}] ` : '';
+        this.addLog(`${prefix}${message}`, type);
+    }
+
+    addLog(message, type = 'info') {
+        if (!this.debugLogs) return;
+
+        // Remove "waiting" message on first log
+        const waiting = this.debugLogs.querySelector('.log-entry:only-child');
+        if (waiting && waiting.textContent === 'Waiting for logs...') {
+            waiting.remove();
+        }
+
+        // Add timestamp
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        entry.textContent = `[${time}] ${message}`;
+
+        this.debugLogs.appendChild(entry);
+
+        // Limit log entries
+        while (this.debugLogs.children.length > this.maxLogs) {
+            this.debugLogs.removeChild(this.debugLogs.firstChild);
+        }
+
+        // Auto-scroll to bottom
+        this.debugLogs.scrollTop = this.debugLogs.scrollHeight;
+    }
+
+    clearLogs() {
+        if (this.debugLogs) {
+            this.debugLogs.innerHTML = '<div class="log-entry log-info">Logs cleared</div>';
+        }
+    }
+
+    updateDebugDeviceSelect() {
+        if (!this.debugDeviceSelect) return;
+
+        this.debugDeviceSelect.innerHTML = '';
+        this.devices.forEach((_, id) => {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = id;
+            this.debugDeviceSelect.appendChild(option);
+        });
+    }
+
+    // ============ Existing Methods ============
 
     selectScenario(scenario) {
         this.selectedScenario = scenario;
@@ -75,6 +201,7 @@ class RoboCupApp {
         const id = `ESP_${String(this.devices.size + 1).padStart(2, '0')}`;
         this.devices.set(id, { connected: false, role: null });
         this.renderDevices();
+        this.updateDebugDeviceSelect();
     }
 
     renderDevices() {
@@ -116,6 +243,7 @@ class RoboCupApp {
         this.stopBtn.disabled = false;
         this.simStatus.textContent = 'RUNNING';
         this.startTimer();
+        this.addLog('Simulation started', 'info');
     }
 
     stopSimulation() {
@@ -125,6 +253,7 @@ class RoboCupApp {
         this.stopBtn.disabled = true;
         this.simStatus.textContent = 'STOPPED';
         this.stopTimer();
+        this.addLog('Simulation stopped', 'info');
     }
 
     handleGameStatus(data) {
@@ -161,3 +290,4 @@ class RoboCupApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => new RoboCupApp());
+
