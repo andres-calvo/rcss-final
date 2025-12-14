@@ -62,7 +62,7 @@ class SimulationConfig:
     """Configuración de una simulación."""
     scenario_type: ScenarioType
     players: List[Player]
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300  # 5 minutos
     rcss_host: str = "127.0.0.1"
     rcss_port: int = 6000
 
@@ -260,7 +260,7 @@ class SimulationManager:
         self.trainer: Optional[TrainerConnection] = None
         self.rcss_process: Optional[subprocess.Popen] = None
         self.start_time: Optional[float] = None
-        self.timeout_seconds: int = 120
+        self.timeout_seconds: int = 300  # 5 minutos
         
         # Callbacks para notificaciones
         self.on_status_change: Optional[Callable[[GameStatus], None]] = None

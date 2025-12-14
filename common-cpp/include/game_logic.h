@@ -94,8 +94,8 @@ private:
     AgentState current_state_;
     int dribble_cycle_;  // Contador para alternar entre kick y dash
     
-    static constexpr float DRIBBLE_DISTANCE = 6.0f;  // Zona de dribble extendida
-    static constexpr int DRIBBLE_KICK_INTERVAL = 2;   // Patear cada 2 ciclos (más frecuente)
+    static constexpr float DRIBBLE_DISTANCE = 8.0f;  // Zona de dribble grande
+    static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
     
     static float abs(float val) { return val < 0 ? -val : val; }
     
@@ -127,9 +127,12 @@ private:
             }
         }
         
-        // Lejos: solo dash a máxima potencia
+        // Lejos: dash a máxima potencia
         current_state_ = AgentState::APPROACHING_BALL;
-        return Action::dash(100, ball.angle);
+        
+        // Más cerca de la zona de dribble, reducir potencia
+        float power = (ball.distance > 10.0f) ? 100.0f : 80.0f;
+        return Action::dash(power, ball.angle);
     }
     
     /**
@@ -284,13 +287,24 @@ private:
             return Action::turn(30);
         }
         
-        // Si está en rango de pateo, patear SUAVE para mantener control
+        // Si está en rango de pateo, patear SUAVE para iniciar juego
         if (ball.distance <= GameConfig::KICKABLE_DISTANCE) {
-            return Action::kick(25, 0);  // Kickoff suave para no alejar la bola
+            return Action::kick(30, 0);  // Kickoff suave para mantener control
         }
         
-        // Ir hacia el balón con dash direccional
-        return Action::dash(80, ball.angle);
+        // Dash progresivo: más agresivo pero frenando cerca
+        float power;
+        if (ball.distance > 6.0f) {
+            power = 100.0f;  // Lejos: máxima velocidad
+        } else if (ball.distance > 3.0f) {
+            power = 80.0f;   // Medio: alta velocidad
+        } else if (ball.distance > 1.5f) {
+            power = 50.0f;   // Cerca: reducir
+        } else {
+            power = 30.0f;   // Llegando: frenar
+        }
+        
+        return Action::dash(power, ball.angle);
     }
 };
 

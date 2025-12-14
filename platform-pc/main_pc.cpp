@@ -122,24 +122,43 @@ public:
         using namespace robocup;
         
         GameLogic logic;
+        auto last_send_time = std::chrono::steady_clock::now();
+        constexpr auto MIN_SEND_INTERVAL = std::chrono::milliseconds(75);  // 75ms rate limit
         
         while (running) {
             try {
                 // Esperar mensaje de estado
-                auto msg = client_.try_consume_message_for(std::chrono::milliseconds(100));
+                auto msg = client_.try_consume_message_for(std::chrono::milliseconds(50));
                 
                 if (msg) {
                     // Parsear JSON (simplificado)
                     std::string payload = msg->get_payload_str();
                     SensorData sensors = parse_sensors(payload);
                     
+                    // Verificar rate limit (100ms entre comandos)
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - last_send_time < MIN_SEND_INTERVAL) {
+                        continue;  // Esperar más tiempo antes de enviar
+                    }
+                    
                     // Decidir acción
                     Action action = logic.decide_action(sensors);
+                    
+                    // Si es kick pero la bola está fuera de rango, convertir a dash
+                    if (action.type == ActionType::KICK) {
+                        if (!sensors.ball.visible || sensors.ball.distance > 0.8f) {
+                            // Convertir kick inválido a dash hacia la bola
+                            action.type = ActionType::DASH;
+                            action.params[0] = 80.0f;  // Potencia
+                            action.params[1] = sensors.ball.visible ? sensors.ball.angle : 0;
+                        }
+                    }
                     
                     // Enviar acción
                     if (action.type != ActionType::NONE) {
                         std::string action_json = action_to_json(action);
                         client_.publish(action_topic_, action_json, 1, false);
+                        last_send_time = now;
                     }
                 }
             } catch (const std::exception& e) {

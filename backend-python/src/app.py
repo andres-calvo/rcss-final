@@ -65,9 +65,9 @@ class RoboCupBackend:
         self.running = False
         self.game_loop_thread = None
         
-        # Rate limiting para sensores (evitar drift de sincronización)
+        # Rate limiting para sensores
         self.sensor_cycle_count = {}
-        self.SENSOR_PUBLISH_INTERVAL = 3  # Publicar cada N mensajes (see)
+        self.SENSOR_PUBLISH_INTERVAL = 3  # Publicar cada 3 mensajes
         
         # Configurar callbacks
         self._setup_callbacks()
