@@ -1,0 +1,21 @@
+menu "RoboCup Agent Configuration"
+
+    config ESP_WIFI_SSID
+        string "WiFi SSID"
+        default "WIFISSD"
+        help
+            SSID (network name) for the WiFi connection.
+
+    config ESP_WIFI_PASSWORD
+        string "WiFi Password"
+        default "WIFIPassword"
+        help
+            WiFi password (WPA or WPA2).
+
+    config MQTT_BROKER_URL
+        string "MQTT Broker URL"
+        default "mqtt://192.168.1.100:1883"
+        help
+            URL of the MQTT broker (format: mqtt://host:port).
+
+endmenu

@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
 
-# Incluir el common-cpp como componente
-set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../common-cpp")
-
+# common-cpp es header-only, se incluye directamente desde el componente main
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(robocup_agent)

@@ -42,6 +42,9 @@ static const char* TAG = "ROBOCUP_AGENT";
 #define TOPIC_ACTION    "player/action/" DEVICE_ID
 #define TOPIC_TEAM      "team/comm"
 
+// Rate limiting
+#define MIN_SEND_INTERVAL_MS 75
+
 // =============================================================================
 // Variables globales
 // =============================================================================
@@ -119,8 +122,14 @@ static robocup::SensorData parse_sensor_json(const char* json_str) {
     // Status
     cJSON* status = cJSON_GetObjectItem(root, "status");
     if (status && cJSON_IsString(status)) {
-        if (strcmp(status->valuestring, "PLAYING") == 0) {
+        if (strcmp(status->valuestring, "PLAYING") == 0 ||
+            strcmp(status->valuestring, "play_on") == 0) {
             sensors.status = robocup::GameStatus::PLAYING;
+        } else if (strcmp(status->valuestring, "BEFORE_KICK_OFF") == 0 ||
+                   strcmp(status->valuestring, "before_kick_off") == 0 ||
+                   strcmp(status->valuestring, "kick_off_l") == 0 ||
+                   strcmp(status->valuestring, "kick_off_r") == 0) {
+            sensors.status = robocup::GameStatus::BEFORE_KICK_OFF;
         } else if (strcmp(status->valuestring, "FINISHED") == 0) {
             sensors.status = robocup::GameStatus::FINISHED;
         }
@@ -249,16 +258,34 @@ static void agent_task(void* pvParameters) {
     ESP_LOGI(TAG, "Agent task started");
     
     robocup::SensorData sensors;
+    TickType_t last_send_time = 0;
     
     while (true) {
         // Esperar datos de sensores del broker
         if (xQueueReceive(sensor_queue, &sensors, pdMS_TO_TICKS(100)) == pdTRUE) {
+            // Verificar rate limit (75ms entre comandos)
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_send_time) < pdMS_TO_TICKS(MIN_SEND_INTERVAL_MS)) {
+                continue;  // Esperar más tiempo antes de enviar
+            }
+            
             // Decidir acción
             robocup::Action action = game_logic.decide_action(sensors);
+            
+            // Si es kick pero la bola está fuera de rango, convertir a dash
+            if (action.type == robocup::ActionType::KICK) {
+                if (!sensors.ball.visible || sensors.ball.distance > 0.8f) {
+                    // Convertir kick inválido a dash hacia la bola
+                    action.type = robocup::ActionType::DASH;
+                    action.params[0] = 80.0f;  // Potencia
+                    action.params[1] = sensors.ball.visible ? sensors.ball.angle : 0;
+                }
+            }
             
             // Publicar si no es NONE
             if (action.type != robocup::ActionType::NONE) {
                 publish_action(action);
+                last_send_time = now;
             }
             
             // Log de estado
