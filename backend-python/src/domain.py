@@ -81,7 +81,8 @@ class RCSSConnection:
         self.socket: Optional[socket_lib.socket] = None
         self.assigned_port: Optional[int] = None
     
-    def connect(self, team_name: str, uniform_number: int, is_goalie: bool = False) -> bool:
+    def connect(self, team_name: str, uniform_number: int, is_goalie: bool = False, 
+                position: tuple = None) -> bool:
         """
         Conecta un jugador al simulador.
         
@@ -89,6 +90,7 @@ class RCSSConnection:
             team_name: Nombre del equipo
             uniform_number: Número de camiseta
             is_goalie: Si es el portero
+            position: Posición inicial personalizada (x, y), opcional
             
         Returns:
             True si la conexión fue exitosa
@@ -112,25 +114,29 @@ class RCSSConnection:
             logger.info(f"Response from {server_addr}: {response_str}")
             self.assigned_port = server_addr[1]
             
-            # Ubicar jugador en el campo (posición inicial según número)
-            # Posiciones aproximadas para cada jugador (más cerca del centro para pruebas)
-            positions = {
-                1: (-10, -5),   # Jugador 1 - cerca del centro
-                2: (-10, 5),    # Jugador 2 - cerca del centro
-                3: (-15, -10),  # Jugador 3
-                4: (-15, 10),   # Jugador 4
-                5: (-20, 0),    # Medio
-                6: (-20, 15),   # Medio
-                7: (-5, -15),   # Delantero
-                8: (-5, 0),     # Striker principal
-                9: (-5, 15),    # Delantero
-                10: (-25, -10), # Defensa
-                11: (-25, 10),  # Defensa
-            }
-            if is_goalie:
+            # Ubicar jugador en el campo
+            if position:
+                # Usar posición personalizada si se proporciona
+                x, y = position
+            elif is_goalie:
                 x, y = (-50, 0)
             else:
+                # Posiciones por defecto según número de jugador
+                positions = {
+                    1: (-10, -5),   # Jugador 1 - cerca del centro
+                    2: (-10, 5),    # Jugador 2 - cerca del centro
+                    3: (-15, -10),  # Jugador 3
+                    4: (-15, 10),   # Jugador 4
+                    5: (-20, 0),    # Medio
+                    6: (-20, 15),   # Medio
+                    7: (-5, -15),   # Delantero
+                    8: (-5, 0),     # Striker principal
+                    9: (-5, 15),    # Delantero
+                    10: (-25, -10), # Defensa
+                    11: (-25, 10),  # Defensa
+                }
                 x, y = positions.get(uniform_number, (-10, 0))
+            
             move_cmd = f"(move {x} {y})"
             logger.info(f"Moving player to ({x}, {y})")
             self.socket.sendto(move_cmd.encode(), (self.host, self.assigned_port))
@@ -387,7 +393,19 @@ class SimulationManager:
             conn = RCSSConnection(config.rcss_host, config.rcss_port)
             is_goalie = player.role == PlayerRole.GOALKEEPER
             
-            if conn.connect(player.team_name, player.uniform_number, is_goalie):
+            # Determinar posición inicial según escenario
+            # NOTA: En RCSSServer las coordenadas de (move x y) son RELATIVAS al equipo
+            # Ambos equipos usan el mismo sistema: valores negativos de X = hacia el centro
+            position = None
+            if config.scenario_type == ScenarioType.DEFENSE:
+                if player.role == PlayerRole.STRIKER:
+                    # Striker cerca del balón para hacer kickoff
+                    position = (-10, 0)
+                elif player.role == PlayerRole.DEFENDER:
+                    # Defender en posición simétrica (mismo valor, el servidor lo espeja)
+                    position = (-10, 0)
+            
+            if conn.connect(player.team_name, player.uniform_number, is_goalie, position):
                 player.is_connected = True
                 self.players[player.device_id] = player
                 self.connections[player.device_id] = conn

@@ -335,12 +335,14 @@ private:
             return search_ball();
         }
         
+        // Si tiene el balón en rango de pateo, NO HACER NADA
+        // Esto permite que el Striker se acerque y lo robe
         if (ball.distance < GameConfig::KICKABLE_DISTANCE) {
-            // Despejar
-            return Action::kick(GameConfig::KICK_POWER_SHOT, 0);
+            current_state_ = AgentState::DEFENDING;
+            return Action::none();  // Quedarse quieto con el balón
         }
         
-        // Acercarse al balón
+        // Acercarse al balón (especialmente útil después del kickoff)
         current_state_ = AgentState::DEFENDING;
         return Action::dash(80, ball.angle);
     }
