@@ -193,7 +193,10 @@ private:
             sensors.status = robocup::GameStatus::FINISHED;
         }
         
-        if (json.find("\"STRIKER\"") != std::string::npos) {
+        // IMPORTANTE: STRIKER_GK_SIM debe ir ANTES de STRIKER porque contiene "STRIKER"
+        if (json.find("\"STRIKER_GK_SIM\"") != std::string::npos) {
+            sensors.role = robocup::PlayerRole::STRIKER_GK_SIM;
+        } else if (json.find("\"STRIKER\"") != std::string::npos) {
             sensors.role = robocup::PlayerRole::STRIKER;
         } else if (json.find("\"GOALKEEPER\"") != std::string::npos) {
             sensors.role = robocup::PlayerRole::GOALKEEPER;

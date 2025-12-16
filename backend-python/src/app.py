@@ -105,7 +105,8 @@ class RoboCupBackend:
                 if scenario_type == ScenarioType.GOALKEEPER:
                     if role == PlayerRole.GOALKEEPER:
                         team_name = "TeamB"
-                    elif role == PlayerRole.STRIKER:
+                    elif role == PlayerRole.STRIKER_GK_SIM or role == PlayerRole.STRIKER:
+                        role = PlayerRole.STRIKER_GK_SIM  # Force to use simplified striker
                         team_name = "TeamA"
                 elif scenario_type == ScenarioType.DEFENSE:
                     # Enforce roles based on order: 1st = Striker (A), 2nd = Defender (B)

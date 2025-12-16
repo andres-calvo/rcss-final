@@ -32,7 +32,8 @@ enum class PlayerRole : uint8_t {
     PASSER = 2,
     RECEIVER = 3,
     GOALKEEPER = 4,
-    DEFENDER = 5
+    DEFENDER = 5,
+    STRIKER_GK_SIM = 6  // Striker for goalkeeper simulation (kicks forward only)
 };
 
 /**

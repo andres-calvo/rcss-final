@@ -32,6 +32,7 @@ class PlayerRole(Enum):
     RECEIVER = "RECEIVER"
     GOALKEEPER = "GOALKEEPER"
     DEFENDER = "DEFENDER"
+    STRIKER_GK_SIM = "STRIKER_GK_SIM"  # Striker for goalkeeper simulation
 
 
 class ScenarioType(Enum):
@@ -404,6 +405,13 @@ class SimulationManager:
                 elif player.role == PlayerRole.DEFENDER:
                     # Defender en posición simétrica (mismo valor, el servidor lo espeja)
                     position = (-10, 0)
+            elif config.scenario_type == ScenarioType.GOALKEEPER:
+                if player.role == PlayerRole.STRIKER_GK_SIM:
+                    # Striker cerca del balón para patear hacia el arco
+                    position = (-2, 0)
+                elif player.role == PlayerRole.GOALKEEPER:
+                    # Goalkeeper en el arco (TeamB se ubica en el lado derecho)
+                    position = (-50, 0)
             elif config.scenario_type == ScenarioType.PASSING:
                 if player.role == PlayerRole.PASSER:
                     # PASSER cerca del balón para hacer kickoff

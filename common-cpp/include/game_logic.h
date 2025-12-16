@@ -47,6 +47,7 @@ enum class KickoffPhase : uint8_t {
 struct GameConfig {
     static constexpr float KICKABLE_DISTANCE = 0.7f;
     static constexpr float CATCHABLE_DISTANCE = 2.0f;
+    static constexpr float CATCHABLE_DISTANCE_GK_SIM = 3.0f;  // Distancia mayor para simulación de arquero
     static constexpr float SHOOTING_DISTANCE = 25.0f;
     static constexpr float KICK_POWER_SHOT = 100.0f;
     static constexpr float KICK_POWER_PASS = 50.0f;
@@ -57,7 +58,7 @@ struct GameConfig {
  */
 class GameLogic {
 public:
-    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0), passer_kicked_(false) {}
+    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0), passer_kicked_(false), goalkeeper_caught_(false), goalkeeper_turned_(false) {}
     
     void reset() { 
         current_state_ = AgentState::IDLE;
@@ -66,6 +67,8 @@ public:
         kickoff_phase_ = KickoffPhase::INITIAL;
         receiver_run_cycles_ = 0;
         passer_kicked_ = false;
+        goalkeeper_caught_ = false;
+        goalkeeper_turned_ = false;
     }
     
     AgentState get_state() const { return current_state_; }
@@ -109,6 +112,8 @@ public:
                 return decide_goalkeeper(sensors);
             case PlayerRole::DEFENDER:
                 return decide_defender(sensors);
+            case PlayerRole::STRIKER_GK_SIM:
+                return decide_striker_gk_sim(sensors);
             default:
                 return Action::none();
         }
@@ -121,6 +126,8 @@ private:
     KickoffPhase kickoff_phase_;
     int receiver_run_cycles_;
     bool passer_kicked_;  // Flag para saber si el PASSER ya hizo kickoff
+    bool goalkeeper_caught_;  // Flag para evitar múltiples catches (penalty)
+    bool goalkeeper_turned_;  // Flag para girar hacia el centro una sola vez
     
     static constexpr float DRIBBLE_DISTANCE = 5.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
@@ -328,35 +335,69 @@ private:
         return dribble_forward(sensors);
     }
     
+    /**
+     * @brief Goalkeeper SIMPLIFICADO para simulación.
+     * - Turn inicial para mirar hacia el centro
+     * - SIN movimiento después del turn
+     * - Envía EXACTAMENTE UN catch cuando balón está a ≤2m
+     */
     Action decide_goalkeeper(const SensorData& sensors) {
         const auto& ball = sensors.ball;
         
+        // Si ya atrapó, no hacer nada más (evita penalty por múltiples catches)
+        if (goalkeeper_caught_) {
+            return Action::none();
+        }
+        
+        // Turn inicial para mirar hacia el centro (una sola vez)
+        if (!goalkeeper_turned_) {
+            goalkeeper_turned_ = true;
+            // Girar 180 grados para mirar hacia el centro de la cancha
+            return Action::turn(180);
+        }
+        
+        // Si no ve el balón, solo esperar (sin movimiento)
         if (!ball.visible) {
             return Action::none();
         }
         
-        if (ball.distance < GameConfig::CATCHABLE_DISTANCE) {
+        // Si el balón está a ≤3m (distancia aumentada para simulación), atrapar UNA VEZ
+        if (ball.distance <= GameConfig::CATCHABLE_DISTANCE_GK_SIM) {
+            goalkeeper_caught_ = true;  // Marcar como atrapado
             current_state_ = AgentState::CATCHING;
             return Action::catch_ball(ball.angle);
         }
         
-        // Restringir movimiento: no salir del área (x > 35 o x < -35)
-        if (sensors.position.valid) {
-            if (abs(sensors.position.x) < 35.0f) {
-                current_state_ = AgentState::DEFENDING;
-                // Volver al arco (50 o -50 según lado actual)
-                float target_x = (sensors.position.x > 0) ? 50.0f : -50.0f;
-                float angle_to_home = Localization::angle_to_target(sensors.position, target_x, 0.0f);
-                return Action::dash(80, angle_to_home);
-            }
-        }
-
-        // Moverse hacia el balón si está cerca
-        if (ball.distance < 10.0f) {
-            return Action::dash(30, ball.angle);
+        // No moverse, solo esperar
+        return Action::none();
+    }
+    
+    /**
+     * @brief Striker SIMPLIFICADO para simulación de goalkeeper.
+     * - SIN turn (para no desorientar los kicks)
+     * - Dash hacia adelante si no ve la bola
+     * - SIEMPRE patear hacia adelante (ángulo 0) con fuerza moderada
+     */
+    Action decide_striker_gk_sim(const SensorData& sensors) {
+        const auto& ball = sensors.ball;
+        
+        // Si no ve la bola, dash hacia adelante (NO turn, para mantener orientación)
+        if (!ball.visible) {
+            current_state_ = AgentState::APPROACHING_BALL;
+            return Action::dash(80, 0);  // Dash hacia adelante
         }
         
-        return Action::none();
+        // Si tiene la bola, SIEMPRE patear hacia adelante (ángulo 0) con fuerza SUAVE
+        if (ball.distance <= GameConfig::KICKABLE_DISTANCE) {
+            current_state_ = AgentState::SHOOTING;
+            return Action::kick(30, 0);  // Fuerza suave para que el arquero pueda atrapar
+        }
+        
+        // Acercarse a la bola: dash hacia el ángulo de la bola
+        // Potencia MODERADA para no atravesar la bola
+        current_state_ = AgentState::APPROACHING_BALL;
+        float power = (ball.distance > 3.0f) ? 80.0f : 40.0f;
+        return Action::dash(power, ball.angle);
     }
     
     Action decide_defender(const SensorData& sensors) {
