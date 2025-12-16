@@ -57,7 +57,7 @@ struct GameConfig {
  */
 class GameLogic {
 public:
-    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0) {}
+    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0), passer_kicked_(false) {}
     
     void reset() { 
         current_state_ = AgentState::IDLE;
@@ -65,6 +65,7 @@ public:
         goal_search_cycles_ = 0;
         kickoff_phase_ = KickoffPhase::INITIAL;
         receiver_run_cycles_ = 0;
+        passer_kicked_ = false;
     }
     
     AgentState get_state() const { return current_state_; }
@@ -77,9 +78,15 @@ public:
         // Incrementar contador de ciclos para dribbling
         dribble_cycle_++;
         
-        // Kickoff: ir a la bola y patear
+        // Kickoff: SOLO el PASSER puede moverse, el resto debe esperar
         if (sensors.status == GameStatus::BEFORE_KICK_OFF) {
-            return handle_kickoff(sensors);
+            // SOLO el PASSER hace el kickoff, el resto espera quieto
+            if (sensors.role == PlayerRole::PASSER) {
+                return handle_passer_kickoff(sensors);
+            }
+            // RECEIVER y todos los demás deben esperar quietos hasta play_on
+            current_state_ = AgentState::IDLE;
+            return Action::none();
         }
         
         // Si no está jugando, no hacer nada
@@ -113,6 +120,7 @@ private:
     int goal_search_cycles_;  // Contador de ciclos buscando el arco
     KickoffPhase kickoff_phase_;
     int receiver_run_cycles_;
+    bool passer_kicked_;  // Flag para saber si el PASSER ya hizo kickoff
     
     static constexpr float DRIBBLE_DISTANCE = 5.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
@@ -259,6 +267,15 @@ private:
     }
     
     Action decide_passer(const SensorData& sensors) {
+        // PASSER solo hace kickoff UNA VEZ, luego no hace absolutamente nada
+        
+        // Si ya hizo kickoff, SIEMPRE retornar none (no importa el estado del juego)
+        if (passer_kicked_) {
+            current_state_ = AgentState::IDLE;
+            return Action::none();
+        }
+        
+        // Durante kickoff: ir por el balón y patearlo
         const auto& ball = sensors.ball;
         
         if (!ball.visible) {
@@ -269,32 +286,46 @@ private:
             return approach_ball(ball);
         }
         
-        // Pasar a compañero si visible
-        if (sensors.teammate_count > 0 && sensors.teammates[0].visible) {
-            current_state_ = AgentState::PASSING;
-            return Action::kick(GameConfig::KICK_POWER_PASS, sensors.teammates[0].angle);
-        }
-        
-        return dribble_forward(sensors);
+        // Tiene el balón - hacer kickoff suave y marcar como hecho
+        passer_kicked_ = true;
+        return Action::kick(30, 0);  // Kickoff suave
     }
     
     Action decide_receiver(const SensorData& sensors) {
         const auto& ball = sensors.ball;
         const auto& goal = sensors.goal;
         
-        if (!ball.visible) {
-            return Action::turn(30);
+        // RECEIVER debe esperar hasta que el juego esté en PLAYING
+        // (señal play_on del referee, que ocurre después del kickoff)
+        // Durante BEFORE_KICK_OFF, el receiver NO debe moverse
+        if (sensors.status != GameStatus::PLAYING) {
+            current_state_ = AgentState::IDLE;
+            return Action::none();
         }
         
+        // Buscar balón si no es visible
+        if (!ball.visible) {
+            return search_ball();
+        }
+        
+        // Ir hacia el balón si está lejos
         if (ball.distance > GameConfig::KICKABLE_DISTANCE) {
             return approach_ball(ball);
         }
         
-        if (goal.visible) {
+        // Tiene el balón - disparar si ve el gol
+        if (goal.visible && goal.distance < GameConfig::SHOOTING_DISTANCE) {
             return shoot_to_goal(goal);
         }
         
-        return Action::turn(30);
+        // No ve el gol - driblear hacia él
+        if (goal.visible) {
+            current_state_ = AgentState::DRIBBLING;
+            return Action::kick(30, goal.angle);
+        }
+        
+        // Sin gol visible - usar triangulación o driblar hacia adelante
+        return dribble_forward(sensors);
     }
     
     Action decide_goalkeeper(const SensorData& sensors) {
@@ -349,19 +380,33 @@ private:
     
     // ========== KICKOFF ==========
     
-    Action handle_kickoff(const SensorData& sensors) {
+    /**
+     * @brief Kickoff handler SOLO para el PASSER.
+     * El PASSER busca la pelota, se acerca a ella, y la patea para iniciar el juego.
+     */
+    Action handle_passer_kickoff(const SensorData& sensors) {
         const auto& ball = sensors.ball;
         
+        // Si ya pateó, no hacer nada más
+        if (passer_kicked_) {
+            current_state_ = AgentState::IDLE;
+            return Action::none();
+        }
+        
         if (!ball.visible) {
+            current_state_ = AgentState::SEARCHING_BALL;
             return Action::turn(30);
         }
         
-        // Si está en rango de pateo, patear SUAVE para iniciar juego
+        // Si está en rango de pateo, patear para iniciar juego
         if (ball.distance <= GameConfig::KICKABLE_DISTANCE) {
-            return Action::kick(30, 0);  // Kickoff suave para mantener control
+            passer_kicked_ = true;  // Marcar que ya hizo kickoff
+            current_state_ = AgentState::PASSING;
+            return Action::kick(40, 0);  // Kickoff hacia adelante
         }
         
         // Dash progresivo: más agresivo pero frenando cerca
+        current_state_ = AgentState::APPROACHING_BALL;
         float power;
         if (ball.distance > 6.0f) {
             power = 100.0f;  // Lejos: máxima velocidad

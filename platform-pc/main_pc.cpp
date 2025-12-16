@@ -201,6 +201,10 @@ private:
             sensors.role = robocup::PlayerRole::DRIBBLER;
         } else if (json.find("\"DEFENDER\"") != std::string::npos) {
             sensors.role = robocup::PlayerRole::DEFENDER;
+        } else if (json.find("\"PASSER\"") != std::string::npos) {
+            sensors.role = robocup::PlayerRole::PASSER;
+        } else if (json.find("\"RECEIVER\"") != std::string::npos) {
+            sensors.role = robocup::PlayerRole::RECEIVER;
         }
         
         // Parsear ball distance/angle
