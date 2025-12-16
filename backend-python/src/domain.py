@@ -339,7 +339,7 @@ class SimulationManager:
         
         time.sleep(1)  # Esperar a que terminen
         
-        # Iniciar nuevo rcssserver
+        # Iniciar nuevo rcssserver con jugadores homogéneos (sin heterogeneidad)
         try:
             self.rcss_process = subprocess.Popen(
                 ['rcssserver'],
@@ -404,6 +404,13 @@ class SimulationManager:
                 elif player.role == PlayerRole.DEFENDER:
                     # Defender en posición simétrica (mismo valor, el servidor lo espeja)
                     position = (-10, 0)
+            elif config.scenario_type == ScenarioType.PASSING:
+                if player.role == PlayerRole.PASSER:
+                    # PASSER cerca del balón para hacer kickoff
+                    position = (-2, -2)
+                elif player.role == PlayerRole.RECEIVER:
+                    # RECEIVER adelantado para recibir/ir por el balón y hacer gol
+                    position = (0, 10)
             
             if conn.connect(player.team_name, player.uniform_number, is_goalie, position):
                 player.is_connected = True

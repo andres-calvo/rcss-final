@@ -259,12 +259,14 @@ class RoboCupBackend:
     def _handle_referee_state(self, referee_state: str):
         """Maneja cambios de estado del referee."""
         old_status = self.sim_manager.status
+        state_changed = False
         
         # Transición kick_off -> play_on
         if referee_state == "play_on":
             if old_status == GameStatus.BEFORE_KICK_OFF:
                 self.sim_manager.status = GameStatus.PLAYING
                 logger.info("State transition: BEFORE_KICK_OFF -> PLAYING")
+                state_changed = True
                 if self.sim_manager.on_status_change:
                     self.sim_manager.on_status_change(self.sim_manager.status)
         
@@ -273,6 +275,7 @@ class RoboCupBackend:
             if old_status == GameStatus.PLAYING:
                 self.sim_manager.status = GameStatus.BEFORE_KICK_OFF
                 logger.info(f"State transition: PLAYING -> BEFORE_KICK_OFF ({referee_state})")
+                state_changed = True
                 if self.sim_manager.on_status_change:
                     self.sim_manager.on_status_change(self.sim_manager.status)
         
@@ -281,6 +284,30 @@ class RoboCupBackend:
             logger.info(f"Goal detected: {referee_state}")
             if self.sim_manager.on_goal:
                 self.sim_manager.on_goal()
+        
+        # CRÍTICO: Si hubo cambio de estado, enviar INMEDIATAMENTE a todos los agentes
+        # Esto evita el race condition del throttle de sensores
+        if state_changed:
+            self._broadcast_state_immediately()
+    
+    def _broadcast_state_immediately(self):
+        """
+        Envía el estado actual INMEDIATAMENTE a todos los agentes.
+        
+        Se usa cuando hay cambios críticos de estado (BEFORE_KICK_OFF <-> PLAYING)
+        para evitar el race condition del throttle de sensores.
+        """
+        logger.info(f"Broadcasting state immediately: {self.sim_manager.status.value}")
+        
+        for device_id, player in self.sim_manager.players.items():
+            # Crear un estado mínimo con solo status y role
+            state = {
+                'status': self.sim_manager.status.value,
+                'role': player.role.value,
+                'sensors': {}  # Vacío, solo importa el status
+            }
+            self.mqtt.publish_game_state(device_id, state)
+            logger.debug(f"Sent immediate state to {device_id}: {self.sim_manager.status.value}")
     
     def run(self):
         """Inicia el backend completo."""
