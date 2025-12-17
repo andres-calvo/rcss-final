@@ -20,7 +20,7 @@ python -m src.app
 
 ### 3. Abrir Frontend
 
-Abre `frontend/index.html` en tu navegador.
+Abre  localhost:5001 en tu navegador.
 
 ### 4. Iniciar Agente PC (opcional)
 
