@@ -26,8 +26,36 @@ Abre `frontend/index.html` en tu navegador.
 
 ```bash
 cd build
-./platform-pc/agent_pc
+./platform-pc/agent_pc tcp://localhost:1883 ESP_01
 ```
+
+> **Argumentos:**
+> - `tcp://localhost:1883` - URL del broker MQTT
+> - `ESP_01` - ID del dispositivo (debe coincidir con el configurado en el frontend)
+
+### 5. Firmware ESP32
+
+```bash
+# Cargar entorno ESP-IDF
+source /home/andres/esp/v5.5.1/esp-idf/export.sh
+
+cd platform-esp32
+
+# Build
+idf.py build
+
+# Flash (ajusta el puerto según tu sistema)
+idf.py -p /dev/ttyACM0 flash
+
+# Build + Flash + Monitor
+idf.py -p /dev/ttyACM0 flash monitor
+```
+
+> **Nota:** Si tienes problemas de permisos con el puerto serial:
+> ```bash
+> sudo usermod -a -G dialout $USER
+> # Cierra sesión y vuelve a entrar para aplicar cambios
+> ```
 
 ## Estructura del Proyecto
 

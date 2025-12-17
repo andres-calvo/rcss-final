@@ -58,7 +58,7 @@ struct GameConfig {
  */
 class GameLogic {
 public:
-    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0), passer_kicked_(false), goalkeeper_caught_(false), goalkeeper_turned_(false) {}
+    GameLogic() : current_state_(AgentState::IDLE), dribble_cycle_(0), goal_search_cycles_(0), kickoff_phase_(KickoffPhase::INITIAL), receiver_run_cycles_(0), passer_kicked_(false), goalkeeper_caught_(false), goalkeeper_turned_(false), goalkeeper_kicked_(false) {}
     
     void reset() { 
         current_state_ = AgentState::IDLE;
@@ -69,6 +69,7 @@ public:
         passer_kicked_ = false;
         goalkeeper_caught_ = false;
         goalkeeper_turned_ = false;
+        goalkeeper_kicked_ = false;
     }
     
     AgentState get_state() const { return current_state_; }
@@ -128,6 +129,7 @@ private:
     bool passer_kicked_;  // Flag para saber si el PASSER ya hizo kickoff
     bool goalkeeper_caught_;  // Flag para evitar múltiples catches (penalty)
     bool goalkeeper_turned_;  // Flag para girar hacia el centro una sola vez
+    bool goalkeeper_kicked_;  // Flag para despejar el balón después de atrapar
     
     static constexpr float DRIBBLE_DISTANCE = 5.0f;  // Zona de dribble grande
     static constexpr int DRIBBLE_KICK_INTERVAL = 1;   // Patear CADA ciclo
@@ -181,81 +183,33 @@ private:
     }
     
     /**
-     * @brief Dribbling: patear hacia el arco enemigo usando triangulación.
-     * Si tenemos posición válida, calcular dirección hacia el arco.
-     * Si no, patear hacia adelante como fallback.
+     * @brief Dribbling: patear hacia adelante.
+     * TeamA juega de izquierda a derecha, entonces ángulo 0 es hacia el arco enemigo.
      */
-    Action dribble_forward(const SensorData& sensors) {
+    Action dribble_forward(const SensorData& /* sensors */) {
         current_state_ = AgentState::DRIBBLING;
-        
-        // Si tenemos posición válida por triangulación, driblear hacia el arco
-        if (sensors.position.valid) {
-            // TODO: Aqui no estamos validando de que dentro de las banderas este el arco
-            float angle_to_goal = Localization::angle_to_enemy_goal(sensors.position);
-            return Action::kick(30, angle_to_goal);
-        }
-        
-        return Action::kick(30, 0);  // Fallback: hacia adelante
+        return Action::kick(30, 0);  // Siempre hacia adelante
     }
     
     // ========== LÓGICA POR ROL ==========
     
     Action decide_striker(const SensorData& sensors) {
         const auto& ball = sensors.ball;
-        const auto& goal = sensors.goal;
         
         // PRIORIDAD 1: Si no veo balón -> buscar
         if (!ball.visible) {
-            goal_search_cycles_ = 0;  // Reset búsqueda de arco
             return search_ball();
         }
         
-        // PRIORIDAD 2: Si estamos en rango de pateo -> disparar o driblear
+        // PRIORIDAD 2: Si estamos en rango de pateo -> SIEMPRE patear hacia adelante
         if (ball.distance <= GameConfig::KICKABLE_DISTANCE) {
-            // Si vemos el gol y está relativamente cerca, DISPARAR
-            if (goal.visible && goal.distance < GameConfig::SHOOTING_DISTANCE) {
-                goal_search_cycles_ = 0;
-                return shoot_to_goal(goal);
-            }
-            
-            // Si vemos el gol pero está lejos, driblear HACIA el arco
-            if (goal.visible) {
-                goal_search_cycles_ = 0;
-                current_state_ = AgentState::DRIBBLING;
-                return Action::kick(30, goal.angle);  // Dribble hacia el arco
-            }
-            
-            // NO vemos el arco: usar triangulación mejorada si está disponible
-            if (sensors.position.valid) {
-                // TODO: Aqui no estamos validando de que dentro de las banderas este el arco
-                // Si estamos en zona de gol (x > 35), disparar al centro del arco
-                if (sensors.position.x > 35.0f) {
-                    current_state_ = AgentState::SHOOTING;
-                    // Calcular ángulo hacia el CENTRO del arco (52.5, 0)
-                    float angle_to_goal = Localization::angle_to_target(
-                        sensors.position, 52.5f, 0.0f);
-                    return Action::kick(100, angle_to_goal);  // Disparo fuerte!
-                }
-                
-                // Si estamos lejos, driblear hacia el arco usando triangulación
-                float angle_to_goal = Localization::angle_to_enemy_goal(sensors.position);
-                current_state_ = AgentState::DRIBBLING;
-                return Action::kick(30, angle_to_goal);
-            }
-            
-            // TODO: QUe pasa si por buscar el arco pierdo el balon?
-            // Sin triangulación: girar para buscar el arco
-            goal_search_cycles_++;
-            if (goal_search_cycles_ < 5) {
-                current_state_ = AgentState::SEARCHING_BALL;
-                return Action::turn(30);  // Girar para buscar arco
-            }
-            
-            // Fallback: después de 5 ciclos sin encontrar, dribble hacia adelante
-            return dribble_forward(sensors);
+            current_state_ = AgentState::SHOOTING;
+            // SIEMPRE patear hacia adelante (ángulo 0)
+            // TeamA juega de izquierda a derecha, ángulo 0 = hacia el arco enemigo
+            return Action::kick(100, 0);  // Disparo fuerte hacia adelante
         }
         
-        // PRIORIDAD 3: Acercarse al balón (incluye dribbling automático si está cerca)
+        // PRIORIDAD 3: Acercarse al balón
         return approach_ball(ball);
     }
     
@@ -339,14 +293,22 @@ private:
      * @brief Goalkeeper SIMPLIFICADO para simulación.
      * - Turn inicial para mirar hacia el centro
      * - SIN movimiento después del turn
-     * - Envía EXACTAMENTE UN catch cuando balón está a ≤2m
+     * - Envía EXACTAMENTE UN catch cuando balón está a ≤3m
+     * - Despeja el balón después de atrapar
      */
     Action decide_goalkeeper(const SensorData& sensors) {
         const auto& ball = sensors.ball;
         
-        // Si ya atrapó, no hacer nada más (evita penalty por múltiples catches)
-        if (goalkeeper_caught_) {
+        // Si ya atrapo y ya despejo, no hacer nada más
+        if (goalkeeper_kicked_) {
             return Action::none();
+        }
+        
+        // Si ya atrapo pero no ha despejado, despejar el balón
+        if (goalkeeper_caught_) {
+            goalkeeper_kicked_ = true;  // Marcar como despejado
+            current_state_ = AgentState::PASSING;
+            return Action::kick(80, 0);  // Kick fuerte hacia adelante para despejar
         }
         
         // Turn inicial para mirar hacia el centro (una sola vez)

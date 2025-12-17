@@ -138,7 +138,10 @@ static robocup::SensorData parse_sensor_json(const char* json_str) {
     // Role
     cJSON* role = cJSON_GetObjectItem(root, "role");
     if (role && cJSON_IsString(role)) {
-        if (strcmp(role->valuestring, "STRIKER") == 0) {
+        // IMPORTANTE: STRIKER_GK_SIM debe ir ANTES de STRIKER porque contiene "STRIKER"
+        if (strcmp(role->valuestring, "STRIKER_GK_SIM") == 0) {
+            sensors.role = robocup::PlayerRole::STRIKER_GK_SIM;
+        } else if (strcmp(role->valuestring, "STRIKER") == 0) {
             sensors.role = robocup::PlayerRole::STRIKER;
         } else if (strcmp(role->valuestring, "GOALKEEPER") == 0) {
             sensors.role = robocup::PlayerRole::GOALKEEPER;
@@ -200,6 +203,11 @@ static void publish_action(const robocup::Action& action) {
     ESP_LOGD(TAG, "Published: %s", buffer);
 }
 
+// Buffer estático para ensamblar mensajes fragmentados
+static char mqtt_data_buffer[2048] = {0};
+static int mqtt_data_offset = 0;
+static char mqtt_topic_buffer[64] = {0};
+
 static void mqtt_event_handler(void* args, esp_event_base_t base, 
                                int32_t event_id, void* event_data) {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -216,19 +224,53 @@ static void mqtt_event_handler(void* args, esp_event_base_t base,
             break;
             
         case MQTT_EVENT_DATA: {
-            // Copiar datos (pueden ser parciales)
-            char topic[64] = {0};
-            char data[512] = {0};
+            // Verificar si es el inicio de un nuevo mensaje
+            if (event->current_data_offset == 0) {
+                // Nuevo mensaje - guardar topic y resetear buffer
+                mqtt_data_offset = 0;
+                memset(mqtt_data_buffer, 0, sizeof(mqtt_data_buffer));
+                memset(mqtt_topic_buffer, 0, sizeof(mqtt_topic_buffer));
+                
+                int topic_len = event->topic_len < 63 ? event->topic_len : 63;
+                memcpy(mqtt_topic_buffer, event->topic, topic_len);
+            }
             
-            int topic_len = event->topic_len < 63 ? event->topic_len : 63;
-            int data_len = event->data_len < 511 ? event->data_len : 511;
+            // Copiar fragmento al buffer
+            int copy_len = event->data_len;
+            if (mqtt_data_offset + copy_len >= sizeof(mqtt_data_buffer) - 1) {
+                copy_len = sizeof(mqtt_data_buffer) - 1 - mqtt_data_offset;
+                ESP_LOGW(TAG, "MQTT buffer overflow, truncating");
+            }
             
-            memcpy(topic, event->topic, topic_len);
-            memcpy(data, event->data, data_len);
+            if (copy_len > 0) {
+                memcpy(mqtt_data_buffer + mqtt_data_offset, event->data, copy_len);
+                mqtt_data_offset += copy_len;
+            }
             
-            if (strstr(topic, "game/state") != nullptr) {
-                robocup::SensorData sensors = parse_sensor_json(data);
-                xQueueSend(sensor_queue, &sensors, 0);
+            // Verificar si el mensaje está completo
+            bool is_complete = (event->current_data_offset + event->data_len >= event->total_data_len);
+            
+            ESP_LOGD(TAG, "MQTT fragment: offset=%d, len=%d, total=%d, complete=%d",
+                     event->current_data_offset, event->data_len, 
+                     event->total_data_len, is_complete);
+            
+            if (is_complete) {
+                ESP_LOGI(TAG, "MQTT complete message, topic: %s, total_len: %d", 
+                         mqtt_topic_buffer, mqtt_data_offset);
+                
+                if (strstr(mqtt_topic_buffer, "game/state") != nullptr) {
+                    robocup::SensorData sensors = parse_sensor_json(mqtt_data_buffer);
+                    if (sensors.status != robocup::GameStatus::IDLE) {
+                        ESP_LOGI(TAG, "Parsed - Status: %d, Role: %d, Ball visible: %d", 
+                                 static_cast<int>(sensors.status),
+                                 static_cast<int>(sensors.role),
+                                 sensors.ball.visible);
+                    }
+                    xQueueSend(sensor_queue, &sensors, 0);
+                }
+                
+                // Resetear para siguiente mensaje
+                mqtt_data_offset = 0;
             }
             break;
         }
